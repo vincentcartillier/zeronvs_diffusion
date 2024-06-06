@@ -69,12 +69,10 @@ def sample_model_zero123(input_im, model, sampler, precision, h, w, ddim_steps, 
             #     math.radians(y)), math.cos(math.radians(y)), z])
             T_old = T
             
-            T = T[:, None, :].repeat(n_samples, 1, 1).to(c.device).to(torch.float32)
-            
-            # import pdb
-            # pdb.set_trace()
-            
-            c = torch.cat([c, T], dim=-1)
+            if T is not None:
+                T = T[:, None, :].repeat(n_samples, 1, 1).to(c.device).to(torch.float32)
+                c = torch.cat([c, T], dim=-1)
+
             c = model.cc_projection(c)
             cond = {}
             cond['c_crossattn'] = [c]

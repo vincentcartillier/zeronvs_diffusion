@@ -234,8 +234,6 @@ class DDPM(pl.LightningModule):
             print(f"Keeping EMAs of {len(list(self.model_ema.buffers()))}.")
 
         self.conditioning_config = conditioning_config
-        # print(ignore_keys)
-        # raise
 
         self.use_scheduler = scheduler_config is not None
         if self.use_scheduler:
@@ -253,11 +251,7 @@ class DDPM(pl.LightningModule):
             # finetune_from flag (see main)
             # resume_from_ckpt/resume (handled by lightning)
             # just_eval_this_ckpt
-
             raise AssertionError
-            # self.init_from_ckpt(
-            #     ckpt_path, ignore_keys=ignore_keys, only_model=load_only_unet
-            # )
 
         self.register_schedule(
             given_betas=given_betas,
@@ -391,74 +385,7 @@ class DDPM(pl.LightningModule):
     @torch.no_grad()
     def init_from_ckpt(self, path, ignore_keys=list(), only_model=False):
         raise AssertionError
-        # sd = torch.load(path, map_location="cpu")
-        # if "state_dict" in list(sd.keys()):
-        #     sd = sd["state_dict"]
-        # keys = list(sd.keys())
-
-        # if self.make_it_fit:
-        #     n_params = len(
-        #         [
-        #             name
-        #             for name, _ in itertools.chain(
-        #                 self.named_parameters(), self.named_buffers()
-        #             )
-        #         ]
-        #     )
-        #     for name, param in tqdm(
-        #         itertools.chain(self.named_parameters(), self.named_buffers()),
-        #         desc="Fitting old weights to new weights",
-        #         total=n_params,
-        #     ):
-        #         if not name in sd:
-        #             continue
-        #         old_shape = sd[name].shape
-        #         new_shape = param.shape
-        #         assert len(old_shape) == len(new_shape)
-        #         if len(new_shape) > 2:
-        #             # we only modify first two axes
-        #             assert new_shape[2:] == old_shape[2:]
-        #         # assumes first axis corresponds to output dim
-        #         if not new_shape == old_shape:
-        #             new_param = param.clone()
-        #             old_param = sd[name]
-        #             if len(new_shape) == 1:
-        #                 for i in range(new_param.shape[0]):
-        #                     new_param[i] = old_param[i % old_shape[0]]
-        #             elif len(new_shape) >= 2:
-        #                 for i in range(new_param.shape[0]):
-        #                     for j in range(new_param.shape[1]):
-        #                         new_param[i, j] = old_param[
-        #                             i % old_shape[0], j % old_shape[1]
-        #                         ]
-
-        #                 n_used_old = torch.ones(old_shape[1])
-        #                 for j in range(new_param.shape[1]):
-        #                     n_used_old[j % old_shape[1]] += 1
-        #                 n_used_new = torch.zeros(new_shape[1])
-        #                 for j in range(new_param.shape[1]):
-        #                     n_used_new[j] = n_used_old[j % old_shape[1]]
-
-        #                 n_used_new = n_used_new[None, :]
-        #                 while len(n_used_new.shape) < len(new_shape):
-        #                     n_used_new = n_used_new.unsqueeze(-1)
-        #                 new_param /= n_used_new
-
-        #             sd[name] = new_param
-
-        # missing, unexpected = (
-        #     self.load_state_dict(sd, strict=False)
-        #     if not only_model
-        #     else self.model.load_state_dict(sd, strict=False)
-        # )
-        # print(
-        #     f"Restored from {path} with {len(missing)} missing and {len(unexpected)} unexpected keys"
-        # )
-        # if len(missing) > 0:
-        #     print(f"Missing Keys: {missing}")
-        # if len(unexpected) > 0:
-        #     print(f"Unexpected Keys: {unexpected}")
-
+    
     def q_mean_variance(self, x_start, t):
         """
         Get the distribution q(x_t | x_0).
@@ -703,12 +630,6 @@ class DDPM(pl.LightningModule):
                 "lr_abs", lr, prog_bar=True, logger=True, on_step=True, on_epoch=False
             )
 
-        # print("after step:")
-        # log_memory_summary()
-        # log_new_tensors("after train step")
-
-        # gc.collect()
-
         return loss
 
     @torch.no_grad()
@@ -721,8 +642,11 @@ class DDPM(pl.LightningModule):
         shape = (self.channels, self.image_size, self.image_size)
 
         input_im = self.get_input_tensor(batch, "image_cond")
-        # T = batch["T"]
-        T = common.compute_T(self.conditioning_config, self.depth_models[0], batch)
+        
+        if not self.conditioning_config.skip:
+            T = common.compute_T(self.conditioning_config, self.depth_models[0], batch)
+        else:
+            T = None
 
         sampler = DDIMSampler(self)
         model = self
@@ -730,23 +654,10 @@ class DDPM(pl.LightningModule):
         n_samples = 1
         precision = "fp32"
 
-        # import pdb
-        # pdb.set_trace()
-
         scale = self.eval_config.params.scale
         ddim_steps = self.eval_config.params.ddim_steps
         ddim_eta = self.eval_config.params.ddim_eta
         lpips_model_path = self.eval_config.params.lpips_model_path
-
-        # scale=3.0
-        # n_samples=1
-        # ddim_steps=50
-        # ddim_eta=1.0
-
-        # print(input_im.shape)
-
-        # import pdb
-        # pdb.set_trace()
 
         pred_target_im = sampling_util.sample_model_zero123(
             input_im,
@@ -765,7 +676,6 @@ class DDPM(pl.LightningModule):
 
         lpips_fn = lpips.LPIPS(
             net="vgg" if "vgg" in lpips_model_path else "alex",
-            # model_path=lpips_model_path,
         ).to(
             self.device
         )  # best forward scores
@@ -774,7 +684,6 @@ class DDPM(pl.LightningModule):
             .cpu()
             .numpy()
         )
-        # print(lpips_metric)
         del lpips_fn
 
         pred_target_im = pred_target_im.cpu().numpy().clip(0, 1)
@@ -793,8 +702,6 @@ class DDPM(pl.LightningModule):
                 self.logger.experiment.add_images(
                     key, image_dict[key], self.global_step
                 )
-            # import pdb
-            # pdb.set_trace()
 
         psnr = peak_signal_noise_ratio(gt_target_im, pred_target_im, data_range=1.0)
         ssims = [
@@ -806,18 +713,12 @@ class DDPM(pl.LightningModule):
         ssim = np.mean(ssims)
 
         metrics_dict = {"psnr": psnr, "ssim": ssim, "lpips": lpips_metric}
-        # return metrics_dict
         del input_im
 
-        # log_new_tensors("after valtest step")
         return metrics_dict
 
     @torch.no_grad()
     def shared_valtest_end(self, outs):
-        # import pdb
-        # pdb.set_trace()
-        # log_new_tensors("before valtest_end step")
-
         metrics_dict = {
             k: np.mean([t for out in outs for t in out[k].ravel().tolist()])
             for k in outs[0]
@@ -826,10 +727,7 @@ class DDPM(pl.LightningModule):
         self.log_dict(metrics_dict)
         torch.cuda.empty_cache()
         gc.collect()
-        # log_memory_summary()
-
-        # log_new_tensors("after valtest_end step")
-
+    
     @torch.no_grad()
     def validation_epoch_end(self, outs):
         self.shared_valtest_end(outs)
@@ -841,13 +739,7 @@ class DDPM(pl.LightningModule):
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
         return self.shared_valtest_step(batch, batch_idx)
-        # _, loss_dict_no_ema = self.shared_step(batch)
-        # with self.ema_scope():
-        #     _, loss_dict_ema = self.shared_step(batch)
-        #     loss_dict_ema = {key + '_ema': loss_dict_ema[key] for key in loss_dict_ema}
-        # self.log_dict(loss_dict_no_ema, prog_bar=False, logger=True, on_step=False, on_epoch=True)
-        # self.log_dict(loss_dict_ema, prog_bar=False, logger=True, on_step=False, on_epoch=True)
-
+    
     @torch.no_grad()
     def test_step(self, batch, batch_idx):
         return self.shared_valtest_step(batch, batch_idx)
@@ -958,13 +850,12 @@ class LatentDiffusion(DDPM):
         self.instantiate_cond_stage(cond_stage_config)
         self.cond_stage_forward = cond_stage_forward
 
-        # import pdb
-        # pdb.set_trace()
-
         # construct linear projection layer for concatenating image CLIP embedding and RT
-        self.cc_projection = nn.Linear(
-            768 + self.conditioning_config.params.embedding_dim, 768
-        )
+        if not self.conditioning_config.skip:
+            self.cc_projection = nn.Linear(768 + self.conditioning_config.params.embedding_dim, 768)
+        else:
+            self.cc_projection = nn.Linear(768, 768)
+
         nn.init.eye_(list(self.cc_projection.parameters())[0][:768, :768])
         nn.init.zeros_(list(self.cc_projection.parameters())[1])
         self.cc_projection.requires_grad_(True)
@@ -974,7 +865,7 @@ class LatentDiffusion(DDPM):
 
         ## get depth model
         depth_model = None
-        if hasattr(self.conditioning_config.params, "depth_model_name"):
+        if hasattr(self.conditioning_config.params, "depth_model_name") and not self.conditioning_config.skip:
             depth_model_name = self.conditioning_config.params.depth_model_name
             if depth_model_name is not None:
                 depth_model = common.load_depth_model(depth_model_name)
@@ -983,42 +874,10 @@ class LatentDiffusion(DDPM):
             
         # hide it from pytorch
         self.depth_models = [depth_model]
-            ##
 
         self.restarted_from_ckpt = False
         if ckpt_path is not None:
             raise AssertionError("ckpt_path is not supported")
-            # self.init_from_ckpt(ckpt_path, ignore_keys)
-            # self.restarted_from_ckpt = True
-
-    # def on_load_checkpoint(self, checkpoint):
-    #     import pdb
-    #     pdb.set_trace()
-
-    #     # old_cc_projection_weight = checkpoint["state_dict"]["cc_projection.weight"]
-    #     # old_out_size, old_in_size = old_cc_projection_weight.shape
-    #     # new_in_size = 768 + self.conditioning_config.params.embedding_dim
-    #     # assert old_out_size == 768
-    #     # if old_in_size != new_in_size:
-    #     #     print(
-    #     #         (
-    #     #             f"Warning! Tried to load a checkpoint with conditioning size {old_out_size}\n"
-    #     #             f"This is different than configured conditioning size {new_in_size}\n"
-    #     #             "Attempting to modify weights of old checkpoint to accommodate this."
-    #     #         )
-    #     #     )
-    #     #     new_cc_projection_weight = self.cc_projection.weight.copy().to(
-    #     #         old_cc_projection_weight.device
-    #     #     )
-    #     #     new_cc_projection_weight[:768, :768] = old_cc_projection_weight[:768, :768]
-
-    #     #     checkpoint["state_dict"]["cc_projection.weight"] = new_cc_projection_weight
-
-    #     # training should resume from scratch
-    #     del checkpoint['optimizer_states']
-
-    #     return checkpoint
-
 
     def make_cond_schedule(
         self,
@@ -1287,16 +1146,20 @@ class LatentDiffusion(DDPM):
         uncond=0.05,
     ):
         x = super().get_input(batch, k)
-        # T = batch["T"].to(memory_format=torch.contiguous_format).float()
-        T = (
-            common.compute_T(self.conditioning_config, self.depth_models[0], batch)
-            .to(memory_format=torch.contiguous_format)
-            .float()
-        )
+        
+        if not self.conditioning_config.skip:
+            T = (
+                common.compute_T(self.conditioning_config, self.depth_models[0], batch)
+                .to(memory_format=torch.contiguous_format)
+                .float()
+            )
+        else:
+            T = None
 
         if bs is not None:
             x = x[:bs]
-            T = T[:bs].to(self.device)
+            if not self.conditioning_config.skip:
+                T = T[:bs].to(self.device)
 
         x = x.to(self.device)
         encoder_posterior = self.encode_first_stage(x)
@@ -1320,17 +1183,23 @@ class LatentDiffusion(DDPM):
         with torch.enable_grad():
             clip_emb = self.get_learned_conditioning(xc).detach()
             null_prompt = self.get_learned_conditioning([""]).detach()
-            cond["c_crossattn"] = [
-                self.cc_projection(
-                    torch.cat(
-                        [
-                            torch.where(prompt_mask, null_prompt, clip_emb),
-                            T[:, None, :],
-                        ],
-                        dim=-1,
+            if not self.conditioning_config.skip:
+                cond["c_crossattn"] = [
+                    self.cc_projection(
+                        torch.cat(
+                            [
+                                torch.where(prompt_mask, null_prompt, clip_emb),
+                                T[:, None, :],
+                            ],
+                            dim=-1,
+                        )
                     )
-                )
-            ]
+                ]
+            else:
+                cond["c_crossattn"] = [
+                    self.cc_projection(torch.where(prompt_mask, null_prompt, clip_emb))
+                ]
+
         cond["c_concat"] = [
             input_mask * self.encode_first_stage((xc.to(self.device))).mode().detach()
         ]
@@ -2221,9 +2090,6 @@ class LatentDiffusion(DDPM):
                 return log
             else:
                 return {key: log[key] for key in return_keys}
-
-        # import pdb
-        # pdb.set_trace()
 
         return log
 

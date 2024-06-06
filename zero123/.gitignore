@@ -1,0 +1,6 @@
+__pycache__/
+runs/
+tmp_scripts**/
+slurm_jobs**/
+tmp/
+pretrain_weights/
