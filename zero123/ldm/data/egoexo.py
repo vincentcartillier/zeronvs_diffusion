@@ -28,6 +28,9 @@ import math
 from torch.utils.data.distributed import DistributedSampler
 import pickle
 from ldm.data import webdataset_base
+from decord import VideoReader
+from decord import cpu, gpu
+
 
 from projectaria_tools.core.calibration import CameraCalibration, KANNALA_BRANDT_K3, distort_by_calibration
 from projectaria_tools.core.calibration import FISHEYE624
@@ -151,8 +154,12 @@ class EgoExoDataset(Dataset):
         self.samples = samples
         self.data = data
 
-        if cfg.overfit > 0:
-            self.samples = self.samples[:cfg.overfit]
+        self.overfit = getattr(cfg, 'overfit', -1)
+
+        if self.overfit > 0:
+            self.samples = self.samples[:self.overfit]
+            if split == "train":
+                self.samples = self.samples * 10000
 
     def __len__(self):
         return len(self.samples)
@@ -164,11 +171,15 @@ class EgoExoDataset(Dataset):
 
         # - grab Exo frame
         exo_info = sample['exo_data'][exo_frame_idx]
-        exo_filename=exo_info['exo_filename']
-        cap = cv2.VideoCapture(exo_filename)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-        ret, exo_frame = cap.read()
-        cap.release()
+        exo_filename=os.path.join(self.root, exo_info['exo_filename'])
+        #cap = cv2.VideoCapture(exo_filename)
+        #cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        #ret, exo_frame = cap.read()
+        #cap.release()
+        vr = VideoReader(exo_filename, ctx=cpu(0))
+        exo_frame = vr[frame_idx]
+        exo_frame = exo_frame.asnumpy()
+        del vr
         H,W = exo_frame.shape[:2]
         exo_frame = cv2.cvtColor(exo_frame, cv2.COLOR_BGR2RGB)
 
@@ -205,11 +216,15 @@ class EgoExoDataset(Dataset):
 
 
         # - grab Ego frame
-        ego_filename=sample['ego_filename']
-        cap = cv2.VideoCapture(ego_filename)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-        ret, ego_frame = cap.read()
-        cap.release()
+        ego_filename=os.path.join(self.root, sample['ego_filename'])
+        #cap = cv2.VideoCapture(ego_filename)
+        #cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        #ret, ego_frame = cap.read()
+        #cap.release()
+        vr = VideoReader(ego_filename, ctx=cpu(0))
+        ego_frame = vr[frame_idx]
+        ego_frame = ego_frame.asnumpy()
+        del vr
         H,W = ego_frame.shape[:2]
 
         # - build Ego calibration
@@ -243,8 +258,6 @@ class EgoExoDataset(Dataset):
         )
 
         ego_frame_undist = cv2.resize(ego_frame_undist, (self.resolution[0],self.resolution[1]))
-
-
 
         # - format to ZeroNVS
         image_target = ego_frame_undist
@@ -301,6 +314,8 @@ class EgoExoDataModule(pl.LightningDataModule):
         self.test_config = test_config
 
     def train_dataloader(self):
+        # might have to do that
+        # https://github.com/Lightning-AI/pytorch-lightning/issues/18149
         if self.train_config.datasetclass == 'EgoExoDatasetDebug':
             dataset = EgoExoDatasetDebug(self.train_config.data)
         else:

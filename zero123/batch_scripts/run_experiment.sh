@@ -22,7 +22,7 @@ fi
 
 
 # -- set variables
-ROOT="/srv/essa-lab/flash3/vcartillier3/egoexo-view-synthesis/dependencies/zeronvs_diffusion/zero123/"
+ROOT="/srv/essa-lab/flash3/vcartillier3/zeronvs_diffusion/zero123/"
 
 SCRIPT_DIR="$ROOT/batch_scripts"
 

@@ -2,9 +2,9 @@
 
 #SBATCH --job-name="ZeroNVS-EgoExo"
 
-#SBATCH --output=/srv/essa-lab/flash3/vcartillier3/egoexo-view-synthesis/dependencies/zeronvs_diffusion/zero123/batch_scripts/slurm_logs/sample-%j.out
+#SBATCH --output=/srv/essa-lab/flash3/vcartillier3/zeronvs_diffusion/zero123/batch_scripts/slurm_logs/sample-%j.out
 
-#SBATCH --error=/srv/essa-lab/flash3/vcartillier3/egoexo-view-synthesis/dependencies/zeronvs_diffusion/zero123/batch_scripts/slurm_logs/sample-%j.err
+#SBATCH --error=/srv/essa-lab/flash3/vcartillier3/zeronvs_diffusion/zero123/batch_scripts/slurm_logs/sample-%j.err
 
 ## number of nodes
 #SBATCH --nodes=1

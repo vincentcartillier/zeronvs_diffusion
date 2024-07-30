@@ -1,6 +1,6 @@
 #!/bin/bash
 
-cd /srv/essa-lab/flash3/vcartillier3/egoexo-view-synthesis/dependencies/zeronvs_diffusion/zero123/
+cd /srv/essa-lab/flash3/vcartillier3/zeronvs_diffusion/zero123/
 
 source ~/.bashrc
 
@@ -8,7 +8,7 @@ logdir="$1"
 expename="$2"
 config_file="$3"
 
-rootdir="/srv/essa-lab/flash3/vcartillier3/egoexo-view-synthesis/dependencies/zeronvs_diffusion/zero123/"
+rootdir="/srv/essa-lab/flash3/vcartillier3/zeronvs_diffusion/zero123/"
 
 echo "ROOTIR: $rootdir"
 echo "LOGDIR: $logdir"
@@ -27,11 +27,12 @@ python main_debug.py \
     --scale_lr False \
     --num_nodes 1 \
     --seed 42 \
-    --finetune_from  ../../ZeroNVS/checkpoints/zeronvs_no_T.ckpt \
+    --finetune_from  pretrain_weights/zeronvs_no_T.ckpt \
     --rootdir "$rootdir" \
     --logdir "$logdir" \
     --name "$expename" \
-    --enable_look_for_checkpoints False 
+    --enable_look_for_checkpoints False \
+    --logdir_mode ""
 
 
 # Set the PID var so that the trap can use it

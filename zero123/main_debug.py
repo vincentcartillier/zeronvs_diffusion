@@ -500,7 +500,7 @@ if __name__ == "__main__":
             "If you want to resume training in a new log folder, "
             "use -n/--name in combination with --resume_from_checkpoint"
         )
-    
+
     if opt.resume:
         if not os.path.exists(opt.resume):
             raise ValueError("Cannot find {}".format(opt.resume))
@@ -528,7 +528,7 @@ if __name__ == "__main__":
         else:
             name = ""
         nowname = now + name + opt.postfix
-        logdir = os.path.join(opt.logdir, nowname)
+        logdir = os.path.join(opt.rootdir, opt.logdir, nowname)
 
     ### HACKING LOGDIR ####
     # At this point we can safely hack the logdir with MirrorLogdir
@@ -557,12 +557,9 @@ if __name__ == "__main__":
         *logdir_noname, nowname_1 = logdir.split("/")
         assert nowname_1 == nowname
 
+        #TODO: should define another local and remote dirs
         remote_dir = logdir
-        local_dir = os.path.join(
-            #"/home/jupyter/enter_the_photo_diffusion/zero123/logs", nowname
-            #"/srv/essa-lab/flash3/vcartillier3/egoexo-view-synthesis/dependencies/zeronvs_diffusion/zero123/logs", nowname
-            opt.rootdir, logdir
-        )
+        local_dir = logdir
 
         logdir_callback = MirroredLogdirCallback(
             local_dir=local_dir, remote_dir=remote_dir
@@ -806,7 +803,7 @@ if __name__ == "__main__":
         if not lightning_config.get("find_unused_parameters", True):
             from pytorch_lightning.plugins import DDPPlugin
             trainer_kwargs["plugins"].append(DDPPlugin(find_unused_parameters=False))
-        
+
         if MULTINODE_HACKS:
             # disable resume from hpc ckpts
             # NOTE below only works in later versions
@@ -895,7 +892,7 @@ if __name__ == "__main__":
                 type(lightning_config.just_eval_this_ckpt),
             ),
         )
-        
+
 
         # -- train model
         if opt.train:
