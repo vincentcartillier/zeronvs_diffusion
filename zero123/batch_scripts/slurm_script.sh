@@ -18,7 +18,7 @@
 
 #SBATCH -p essa-lab
 
-#SBATCH --qos short
+#SBATCH --qos long
 
 #SBATCH --signal=B:TERM@120
 

@@ -30,6 +30,7 @@ import pickle
 from ldm.data import webdataset_base
 from decord import VideoReader
 from decord import cpu, gpu
+from imageio import imread
 
 
 from projectaria_tools.core.calibration import CameraCalibration, KANNALA_BRANDT_K3, distort_by_calibration
@@ -162,6 +163,7 @@ class EgoExoDataset(Dataset):
                 self.samples = self.samples * 10000
 
     def __len__(self):
+        print("## There are # num samples: ", len(self.samples))
         return len(self.samples)
 
     def __getitem__(self, index):
@@ -181,7 +183,7 @@ class EgoExoDataset(Dataset):
         exo_frame = exo_frame.asnumpy()
         del vr
         H,W = exo_frame.shape[:2]
-        exo_frame = cv2.cvtColor(exo_frame, cv2.COLOR_BGR2RGB)
+        #exo_frame = cv2.cvtColor(exo_frame, cv2.COLOR_BGR2RGB)
 
         # - build Exo calibration
         if "KANNALA_BRANDT_K3" in exo_info['exo_camera_calibration']['camera_model']:
@@ -306,6 +308,151 @@ class EgoExoDataset(Dataset):
 
 
 
+
+
+
+
+
+
+
+
+
+
+class EgoExoDatasetPreprocessed(Dataset):
+    def __init__(self,cfg,split):
+        self.split = split
+        self.root = cfg.root_dir
+        self.data_filename = cfg.filename
+        self.resolution = cfg.resolution
+
+        data = json.load(open(self.data_filename, "r"))
+
+        # -- make samples: exo -> ego
+        samples = []
+        for i, d in enumerate(data):
+            for j in range(len(d['exo_data'])):
+                if split == "train":
+                    for frame_idx in range(d['start_frame_idx'],d['end_frame_idx']+1,1):
+                        samples.append([i,j,frame_idx])
+                elif split == "val":
+                    sampled_frame_idx=np.random.randint(d['start_frame_idx'],d['end_frame_idx'],10)
+                    for frame_idx in sampled_frame_idx:
+                        samples.append([i,j,frame_idx])
+                elif split == "test":
+                    if "test_frame_idx" in d:
+                        sampled_frame_idx=d['test_frame_idx']
+                    else:
+                        sampled_frame_idx=np.random.randint(d['start_frame_idx'],d['end_frame_idx'],10)
+                    for frame_idx in sampled_frame_idx:
+                        samples.append([i,j,frame_idx])
+                else:
+                    raise NotImplementedError
+
+        self.samples = samples
+        self.data = data
+
+        self.overfit = getattr(cfg, 'overfit', -1)
+
+        if self.overfit > 0:
+            self.samples = self.samples[:self.overfit]
+            if split == "train":
+                self.samples = self.samples * 10000
+
+    def __len__(self):
+        print("## There are # num samples: ", len(self.samples))
+        return len(self.samples)
+
+    def __getitem__(self, index):
+        idx, exo_cam_index, frame_idx = self.samples[index]
+
+        sample = self.data[idx]
+        take_name = sample['take_name']
+        exo_info = sample['exo_data'][exo_cam_index]
+        cam_id = exo_info['cam_id']
+
+        # - grab Exo frame
+        exo_filename = os.path.join(
+            self.root,
+            take_name,
+            f'exo_{cam_id}',
+            f"frame_{frame_idx}.png"
+        )
+        
+        exo_frame_undist = imread(exo_filename)
+        exo_frame_undist = np.asarray(exo_frame_undist)
+        assert exo_frame_undist.shape[:2] == (self.resolution[1],self.resolution[0])
+
+
+        # - grab Ego frame
+        ego_filename = os.path.join(
+            self.root,
+            take_name,
+            f'ego',
+            f"frame_{frame_idx}.png"
+        )
+        ego_frame_undist = imread(ego_filename)
+        ego_frame_undist = np.asarray(ego_frame_undist)
+        assert ego_frame_undist.shape[:2] == (self.resolution[1],self.resolution[0])
+
+
+        # - format to ZeroNVS
+        image_target = ego_frame_undist
+        image_target = image_target.astype(np.float32) / 255.
+        image_target = image_target * 2 - 1
+        image_target = image_target.astype(np.float32)
+
+        image_cond = exo_frame_undist
+        image_cond = image_cond.astype(np.float32) / 255.
+        image_cond = image_cond * 2 - 1
+        image_cond = image_cond.astype(np.float32)
+
+        uid = index
+        pair_uid = index
+        depth_target = np.zeros(image_target.shape)
+        depth_cond = np.zeros(image_cond.shape)
+
+        target_cam2world=np.eye(4)
+
+        batch_struct = webdataset_base.get_batch_struct(
+            image_target=image_target,
+            image_cond=image_cond,
+            depth_target=depth_target,
+            depth_target_filled=0.,
+            depth_cond=depth_cond,
+            depth_cond_filled=0.,
+            uid=uid,
+            pair_uid=pair_uid,
+            T=np.ones(4),
+            target_cam2world=target_cam2world,
+            cond_cam2world=target_cam2world,
+            center=np.zeros(3),
+            focus_pt=np.zeros(3),
+            scene_radius=1.,
+            scene_radius_focus_pt=1.,
+            fov_deg=90.,
+            scale_adjustment=1.,
+            nearplane_quantile=1.,
+            depth_cond_quantile25=-1.,
+            cond_elevation_deg=90.
+        )
+
+        return webdataset_base.batch_struct_to_tuple(batch_struct)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 class EgoExoDataModule(pl.LightningDataModule):
     def __init__(self, train_config, val_config, test_config=None, **kwargs):
         super().__init__(self)
@@ -318,6 +465,8 @@ class EgoExoDataModule(pl.LightningDataModule):
         # https://github.com/Lightning-AI/pytorch-lightning/issues/18149
         if self.train_config.datasetclass == 'EgoExoDatasetDebug':
             dataset = EgoExoDatasetDebug(self.train_config.data)
+        elif self.train_config.datasetclass == 'EgoExoDatasetPreprocessed':
+            dataset = EgoExoDatasetPreprocessed(self.train_config.data, "train")
         else:
             dataset = EgoExoDataset(self.train_config.data, "train")
         sampler = DistributedSampler(dataset)
@@ -334,6 +483,8 @@ class EgoExoDataModule(pl.LightningDataModule):
     def val_dataloader(self):
         if self.val_config.datasetclass == 'EgoExoDatasetDebug':
             dataset = EgoExoDatasetDebug(self.val_config.data)
+        elif self.val_config.datasetclass == 'EgoExoDatasetPreprocessed':
+            dataset = EgoExoDatasetPreprocessed(self.val_config.data, "val")
         else:
             dataset = EgoExoDataset(self.val_config.data, "val")
         sampler = DistributedSampler(dataset)
@@ -350,6 +501,8 @@ class EgoExoDataModule(pl.LightningDataModule):
     def test_dataloader(self):
         if self.test_config.datasetclass == 'EgoExoDatasetDebug':
             dataset = EgoExoDatasetDebug(self.test_config.data)
+        elif self.test_config.datasetclass == 'EgoExoDatasetPreprocessed':
+            dataset = EgoExoDatasetPreprocessed(self.test_config.data, "test")
         else:
             dataset = EgoExoDataset(self.test_config.data, "test")
         sampler = DistributedSampler(dataset)
