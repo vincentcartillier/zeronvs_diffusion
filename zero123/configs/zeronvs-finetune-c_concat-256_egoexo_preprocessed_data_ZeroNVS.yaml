@@ -17,11 +17,11 @@ model:
     scale_factor: 0.18215
 
     conditioning_config:
-      skip: True
+      skip: False
       params:
-        mode: "3dof"
+        mode: "7dof_unscaled"
         embedding_dim: 19
-        depth_model_name: "midas"
+        #depth_model_name: "midas"
         quantile_scale_blend: True
 
     scheduler_config: # 10000 warmup steps
@@ -92,7 +92,7 @@ data:
       num_workers: 0
       #shuffle_buffer_size: 500
       prefetch_factor: 0
-      datasetclass: 'EgoExoDatasetPreprocessed'
+      datasetclass: 'EgoExoDatasetPreprocessedWithPoses'
       data:
         root_dir: '/srv/flash2/vcartillier3/egoexo-view-synthesis/data/preprocessed_data_256/takes'
         filename: '/srv/essa-lab/flash3/vcartillier3/egoexo-view-synthesis/runs/zeronvs_diffusion/data/train_data.json'
@@ -104,7 +104,7 @@ data:
       #shuffle_buffer_size: null
       prefetch_factor: 0
       scene_scale: 1.0
-      datasetclass: 'EgoExoDatasetPreprocessed'
+      datasetclass: 'EgoExoDatasetPreprocessedWithPoses'
       data:
         root_dir: '/srv/flash2/vcartillier3/egoexo-view-synthesis/data/preprocessed_data_256/takes'
         filename: '/srv/essa-lab/flash3/vcartillier3/egoexo-view-synthesis/runs/zeronvs_diffusion/data/val_data.json'
@@ -116,7 +116,7 @@ data:
       #shuffle_buffer_size: null
       prefetch_factor: 0
       scene_scale: 1.0
-      datasetclass: 'EgoExoDatasetPreprocessed'
+      datasetclass: 'EgoExoDatasetPreprocessedWithPoses'
       data:
         root_dir: '/srv/flash2/vcartillier3/egoexo-view-synthesis/data/preprocessed_data_256/takes'
         filename: '/srv/essa-lab/flash3/vcartillier3/egoexo-view-synthesis/runs/zeronvs_diffusion/data/test_data_with_sampled_frame_idx.json'
@@ -150,7 +150,7 @@ lightning:
     metrics_over_trainsteps_checkpoint:
        target: pytorch_lightning.callbacks.ModelCheckpoint
        params:
-         every_n_train_steps: 1000
+         every_n_train_steps: 20000
   trainer:
     benchmark: True
     val_check_interval: 500000 # really sorry
