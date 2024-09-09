@@ -697,11 +697,10 @@ class DDPM(pl.LightningModule):
         }
         directory = "/home/jupyter/tmp_imgs/"
 
-        if batch_idx == 0:
-            for key in image_dict:
-                self.logger.experiment.add_images(
-                    key, image_dict[key], self.global_step
-                )
+        for key in image_dict:
+            self.logger.experiment.add_images(
+                key, image_dict[key], self.global_step
+            )
 
         psnr = peak_signal_noise_ratio(gt_target_im, pred_target_im, data_range=1.0)
         ssims = [
@@ -713,6 +712,13 @@ class DDPM(pl.LightningModule):
         ssim = np.mean(ssims)
 
         metrics_dict = {"psnr": psnr, "ssim": ssim, "lpips": lpips_metric}
+        #LOG HERE LATER
+        # metrics_dict2 = {
+        #     k: np.mean([t for out in outs for t in out[k].ravel().tolist()])
+        #     for k in outs[0]
+        # }
+        # metrics_dict2["batch_idx"] = batch_idx
+        # self.log_dict(metrics_dict2)
         del input_im
 
         return metrics_dict
