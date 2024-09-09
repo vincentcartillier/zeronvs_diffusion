@@ -377,7 +377,7 @@ class EgoExoDatasetPreprocessed(Dataset):
             f'exo_{cam_id}',
             f"frame_{frame_idx}.png"
         )
-        
+
         exo_frame_undist = imread(exo_filename)
         exo_frame_undist = np.asarray(exo_frame_undist)
         assert exo_frame_undist.shape[:2] == (self.resolution[1],self.resolution[0])
@@ -436,7 +436,154 @@ class EgoExoDatasetPreprocessed(Dataset):
             cond_elevation_deg=90.
         )
 
-        return webdataset_base.batch_struct_to_tuple(batch_struct)
+        dta = webdataset_base.batch_struct_to_tuple(batch_struct)
+
+        return webdataset_base.batch_struct_from_tuple(dta)
+
+
+
+
+
+
+class EgoExoDatasetPreprocessedWithPoses(Dataset):
+    def __init__(self,cfg,split):
+        self.split = split
+        self.root = cfg.root_dir
+        self.data_filename = cfg.filename
+        self.resolution = cfg.resolution
+
+        data = json.load(open(self.data_filename, "r"))
+
+        # -- make samples: exo -> ego
+        samples = []
+        for i, d in enumerate(data):
+            for j in range(len(d['exo_data'])):
+                exo_pose = d['exo_data'][j]['exo_pose']
+                if not exo_pose or exo_pose is None: continue
+                if split == "train":
+                    for frame_idx in range(d['start_frame_idx'],d['end_frame_idx']+1,1):
+                        ego_pose = d['ego_poses'][frame_idx]
+                        if not ego_pose or ego_pose is None: continue
+                        samples.append([i,j,frame_idx])
+                elif split == "val":
+                    sampled_frame_idx=np.random.randint(d['start_frame_idx'],d['end_frame_idx'],10)
+                    for frame_idx in sampled_frame_idx:
+                        ego_pose = d['ego_poses'][frame_idx]
+                        if not ego_pose or ego_pose is None: continue
+                        samples.append([i,j,frame_idx])
+                elif split == "test":
+                    if "test_frame_idx" in d:
+                        sampled_frame_idx=d['test_frame_idx']
+                    else:
+                        sampled_frame_idx=np.random.randint(d['start_frame_idx'],d['end_frame_idx'],10)
+                    for frame_idx in sampled_frame_idx:
+                        ego_pose = d['ego_poses'][frame_idx]
+                        if not ego_pose or ego_pose is None: continue
+                        samples.append([i,j,frame_idx])
+                else:
+                    raise NotImplementedError
+
+        self.samples = samples
+        self.data = data
+
+        self.overfit = getattr(cfg, 'overfit', -1)
+
+        if self.overfit > 0:
+            self.samples = self.samples[:self.overfit]
+            if split == "train":
+                self.samples = self.samples * 10000
+
+    def __len__(self):
+        print("## There are # num samples: ", len(self.samples))
+        return len(self.samples)
+
+    def __getitem__(self, index):
+        idx, exo_cam_index, frame_idx = self.samples[index]
+
+        sample = self.data[idx]
+        take_name = sample['take_name']
+        exo_info = sample['exo_data'][exo_cam_index]
+        cam_id = exo_info['cam_id']
+
+        ego_pose = np.array(sample['ego_poses'][frame_idx])
+        exo_pose = np.array(exo_info['exo_pose'])
+
+        T = common.get_T(
+            np.linalg.inv(ego_pose)[:3],
+            np.linalg.inv(exo_pose)[:3],
+            to_torch=False,
+        ).astype(np.float32)
+
+        # - grab Exo frame
+        exo_filename = os.path.join(
+            self.root,
+            take_name,
+            f'exo_{cam_id}',
+            f"frame_{frame_idx}.png"
+        )
+
+        exo_frame_undist = imread(exo_filename)
+        exo_frame_undist = np.asarray(exo_frame_undist)
+        assert exo_frame_undist.shape[:2] == (self.resolution[1],self.resolution[0])
+
+
+        # - grab Ego frame
+        ego_filename = os.path.join(
+            self.root,
+            take_name,
+            f'ego',
+            f"frame_{frame_idx}.png"
+        )
+        ego_frame_undist = imread(ego_filename)
+        ego_frame_undist = np.asarray(ego_frame_undist)
+        assert ego_frame_undist.shape[:2] == (self.resolution[1],self.resolution[0])
+
+
+        # - format to ZeroNVS
+        image_target = ego_frame_undist
+        image_target = image_target.astype(np.float32) / 255.
+        image_target = image_target * 2 - 1
+        image_target = image_target.astype(np.float32)
+
+        image_cond = exo_frame_undist
+        image_cond = image_cond.astype(np.float32) / 255.
+        image_cond = image_cond * 2 - 1
+        image_cond = image_cond.astype(np.float32)
+
+        uid = index
+        pair_uid = index
+        depth_target = np.zeros(image_target.shape)
+        depth_cond = np.zeros(image_cond.shape)
+
+        target_cam2world=np.eye(4)
+
+        batch_struct = webdataset_base.get_batch_struct(
+            image_target=image_target,
+            image_cond=image_cond,
+            depth_target=depth_target,
+            depth_target_filled=0.,
+            depth_cond=depth_cond,
+            depth_cond_filled=0.,
+            uid=uid,
+            pair_uid=pair_uid,
+            T=T,
+            target_cam2world=ego_pose,
+            cond_cam2world=exo_pose,
+            center=np.zeros(3),
+            focus_pt=np.zeros(3),
+            scene_radius=1.,
+            scene_radius_focus_pt=1.,
+            fov_deg=90.,
+            scale_adjustment=1.,
+            nearplane_quantile=1.,
+            depth_cond_quantile25=-1.,
+            cond_elevation_deg=90.
+        )
+
+        dta = webdataset_base.batch_struct_to_tuple(batch_struct)
+
+        return webdataset_base.batch_struct_from_tuple(dta)
+
 
 
 
@@ -467,17 +614,22 @@ class EgoExoDataModule(pl.LightningDataModule):
             dataset = EgoExoDatasetDebug(self.train_config.data)
         elif self.train_config.datasetclass == 'EgoExoDatasetPreprocessed':
             dataset = EgoExoDatasetPreprocessed(self.train_config.data, "train")
+        elif self.train_config.datasetclass =='EgoExoDatasetPreprocessedWithPoses':
+            dataset = EgoExoDatasetPreprocessedWithPoses(self.train_config.data, "train")
         else:
             dataset = EgoExoDataset(self.train_config.data, "train")
-        sampler = DistributedSampler(dataset)
-        loader = wds.WebLoader(
+        #sampler = DistributedSampler(dataset)
+        sampler = None
+        #loader = wds.WebLoader(
+        loader = DataLoader(
             dataset,
             batch_size=self.train_config.batch_size,
             num_workers=self.train_config.num_workers,
-            shuffle=False,
-            sampler=sampler,
+            shuffle=(sampler is None),
+            #prefetch_factor=self.train_config.prefetch_factor
+            #sampler=sampler,
         )
-        loader = loader.map(webdataset_base.batch_struct_from_tuple)
+        #loader = loader.map(webdataset_base.batch_struct_from_tuple)
         return loader
 
     def val_dataloader(self):
@@ -485,17 +637,20 @@ class EgoExoDataModule(pl.LightningDataModule):
             dataset = EgoExoDatasetDebug(self.val_config.data)
         elif self.val_config.datasetclass == 'EgoExoDatasetPreprocessed':
             dataset = EgoExoDatasetPreprocessed(self.val_config.data, "val")
+        elif self.val_config.datasetclass =='EgoExoDatasetPreprocessedWithPoses':
+            dataset = EgoExoDatasetPreprocessedWithPoses(self.val_config.data, "val")
         else:
             dataset = EgoExoDataset(self.val_config.data, "val")
-        sampler = DistributedSampler(dataset)
-        loader = wds.WebLoader(
+        #sampler = DistributedSampler(dataset)
+        #loader = wds.WebLoader(
+        loader = DataLoader(
             dataset,
             batch_size=self.val_config.batch_size,
             num_workers=self.val_config.num_workers,
             shuffle=False,
-            sampler=sampler,
+            #prefetch_factor=self.val_config.prefetch_factor
         )
-        loader = loader.map(webdataset_base.batch_struct_from_tuple)
+        #loader = loader.map(webdataset_base.batch_struct_from_tuple)
         return loader
 
     def test_dataloader(self):
@@ -503,17 +658,20 @@ class EgoExoDataModule(pl.LightningDataModule):
             dataset = EgoExoDatasetDebug(self.test_config.data)
         elif self.test_config.datasetclass == 'EgoExoDatasetPreprocessed':
             dataset = EgoExoDatasetPreprocessed(self.test_config.data, "test")
+        elif self.test_config.datasetclass =='EgoExoDatasetPreprocessedWithPoses':
+            dataset = EgoExoDatasetPreprocessedWithPoses(self.test_config.data, "test")
         else:
             dataset = EgoExoDataset(self.test_config.data, "test")
-        sampler = DistributedSampler(dataset)
-        loader = wds.WebLoader(
+        #sampler = DistributedSampler(dataset)
+        #loader = wds.WebLoader(
+        loader = DataLoader(
             dataset,
             batch_size=self.test_config.batch_size,
             num_workers=self.test_config.num_workers,
             shuffle=False,
-            sampler=sampler,
+            #prefetch_factor=self.test_config.prefetch_factor
         )
-        loader = loader.map(webdataset_base.batch_struct_from_tuple)
+        #loader = loader.map(webdataset_base.batch_struct_from_tuple)
         return loader
 
 
