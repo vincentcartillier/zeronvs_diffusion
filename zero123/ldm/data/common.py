@@ -120,6 +120,17 @@ def _get_relative_transformations(batch, scales):
     assert relative_target_transformation.shape == (batch_size, 4, 4)
     return relative_target_transformation
 
+def get_ego_to_exo(exo, ego):
+    # this is the correct representation to use because it's invariant to
+    # shift but not scale
+
+    target_cam2world = ego
+    cond_cam2world = exo
+
+    relative_target_transformation = np.linalg.inv(target_cam2world) @ cond_cam2world
+
+    return relative_target_transformation
+
 
 def load_depth_model(depth_model_name):
     if depth_model_name == "midas":

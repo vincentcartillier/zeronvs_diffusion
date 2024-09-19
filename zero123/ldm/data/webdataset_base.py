@@ -16,6 +16,8 @@ BATCH_STRUCT_KEYS = [
     "uid",
     "pair_uid",
     "T",
+    "exo_raymap",
+    "ego_raymap",
     "target_cam2world",
     "cond_cam2world",
     "center",

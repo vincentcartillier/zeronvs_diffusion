@@ -4,3 +4,7 @@ tmp_scripts**/
 slurm_jobs**/
 tmp/
 pretrain_weights/
+test_logdir/
+slurm_test_runs/
+slurm_logs/
+slurm_train_runs/

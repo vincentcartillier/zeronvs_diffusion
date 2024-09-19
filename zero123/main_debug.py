@@ -253,10 +253,11 @@ class SetupCallback(Callback):
         self.debug = debug
 
     def on_keyboard_interrupt(self, trainer, pl_module):
-        if not self.debug and trainer.global_rank == 0:
-            rank_zero_print("Summoning checkpoint.")
-            ckpt_path = os.path.join(self.ckptdir, "last.ckpt")
-            trainer.save_checkpoint(ckpt_path)
+        pass
+        # if not self.debug and trainer.global_rank == 0:
+        #     rank_zero_print("Summoning checkpoint.")
+        #     ckpt_path = os.path.join(self.ckptdir, "last.ckpt")
+        #     trainer.save_checkpoint(ckpt_path)
 
     def on_pretrain_routine_start(self, trainer, pl_module):
         if trainer.global_rank == 0:
@@ -476,8 +477,8 @@ if __name__ == "__main__":
     now = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 
     # add cwd for convenience and to make classes in this file available when
-    # running as `python main.py`
-    # (in particular `main.DataModuleFromConfig`)
+    # running as `python main_debug.py`
+    # (in particular `main_debug.DataModuleFromConfig`)
     sys.path.append(os.getcwd())
 
     parser = get_parser()
@@ -543,7 +544,7 @@ if __name__ == "__main__":
     # args.resume: Resume from this ckpt inside this logdir
     # - resume_from_checkpoint will be set
     # args.finetune_from: Resume the model weights only (no step, no optimizer) from
-    #   this path, and attempt to adapt weights based on guessing in main.py
+    #   this path, and attempt to adapt weights based on guessing in main_debug.py
     # - Is not modified and handled later
     # args.just_eval_this_ckpt: Just evaluate this checkpoint
     # - Is not modified and handled later
@@ -635,7 +636,10 @@ if __name__ == "__main__":
                     if input_weight.size() != old_state[input_key].size():
                         print(f"Manual init: {input_key}")
                         input_weight.zero_()
-                        input_weight[:, :4, :, :].copy_(old_state[input_key])
+                        print(f"Looking at key: {input_key}")
+                        print(f"Current weight shape: {input_weight.shape}")
+                        print(f"Old weight shape: {old_state[input_key].shape}")
+                        input_weight[:, :old_state[input_key].shape[1], :, :].copy_(old_state[input_key])
                         old_state[input_key] = torch.nn.parameter.Parameter(
                             input_weight
                         )
@@ -738,7 +742,7 @@ if __name__ == "__main__":
         # add callback which sets up log directory
         default_callbacks_cfg = {
             "setup_callback": {
-                "target": "main.SetupCallback",
+                "target": "main_debug.SetupCallback",
                 "params": {
                     "resume": opt.resume,
                     "now": now,
@@ -751,16 +755,16 @@ if __name__ == "__main__":
                 },
             },
             "image_logger": {
-                "target": "main.ImageLogger",
+                "target": "main_debug.ImageLogger",
                 "params": {"batch_frequency": 750, "max_images": 4, "clamp": True},
             },
             "learning_rate_logger": {
-                "target": "main.LearningRateMonitor",
+                "target": "main_debug.LearningRateMonitor",
                 "params": {
                     "logging_interval": "step",
                 },
             },
-            "cuda_callback": {"target": "main.CUDACallback"},
+            "cuda_callback": {"target": "main_debug.CUDACallback"},
         }
         if version.parse(pl.__version__) >= version.parse("1.4.0"):
             default_callbacks_cfg.update({"checkpoint_callback": modelckpt_cfg})
@@ -877,13 +881,13 @@ if __name__ == "__main__":
                 import pudb
                 pudb.set_trace()
 
-        import signal
+        # import signal
 
-        signal.signal(signal.SIGUSR1, melk)
-        signal.signal(signal.SIGUSR2, divein)
-        signal.signal(signal.SIGTERM, melk) # -- handles scancel from SLURM
-        signal.signal(signal.SIGCONT, melk) # -- handles scancel from SLURM
-        signal.signal(signal.SIGINT, melk) # -- handles scancel from SLURM
+        # signal.signal(signal.SIGUSR1, melk)
+        # signal.signal(signal.SIGUSR2, divein)
+        # signal.signal(signal.SIGTERM, melk) # -- handles scancel from SLURM
+        # signal.signal(signal.SIGCONT, melk) # -- handles scancel from SLURM
+        # signal.signal(signal.SIGINT, melk) # -- handles scancel from SLURM
 
         print(
             "just_eval_this_ckpt",

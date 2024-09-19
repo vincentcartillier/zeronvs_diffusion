@@ -20,7 +20,7 @@ import itertools
 from tqdm import tqdm
 from torchvision.utils import make_grid
 from ldm.models.diffusion import options
-
+import json
 
 if options.LDM_DISTILLATION_ONLY:
     print("SDS distillation only, disabling some functionality...")
@@ -554,12 +554,12 @@ class DDPM(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         # log_new_tensors("before train step")
-        if batch_idx % 500 == 0:
-            log_new_tensors("before clearing")
-            torch.cuda.empty_cache()
-            gc.collect()
-            log_new_tensors("after clearing")
-
+        # if batch_idx % 500 == 0:
+        #     log_new_tensors("before clearing")
+            # torch.cuda.empty_cache()
+            # gc.collect()
+        #     log_new_tensors("after clearing")
+        print("starting")
         for k in self.ucg_training:
             p = self.ucg_training[k]["p"]
             val = self.ucg_training[k]["val"]
@@ -568,9 +568,9 @@ class DDPM(pl.LightningModule):
             for i in range(len(batch[k])):
                 if self.ucg_prng.choice(2, p=[1 - p, p]):
                     batch[k][i] = val
-
+        print("starting shared step")
         loss, loss_dict = self.shared_step(batch)
-
+        print("done with shared step")
         self.log_dict(
             loss_dict, prog_bar=True, logger=True, on_step=True, on_epoch=True
         )
@@ -697,10 +697,11 @@ class DDPM(pl.LightningModule):
         }
         directory = "/home/jupyter/tmp_imgs/"
 
-        for key in image_dict:
-            self.logger.experiment.add_images(
-                key, image_dict[key], self.global_step
-            )
+        if batch_idx % 10 == 0:
+            for key in image_dict:
+                self.logger.experiment.add_images(
+                    key, image_dict[key], batch_idx
+                )
 
         psnr = peak_signal_noise_ratio(gt_target_im, pred_target_im, data_range=1.0)
         ssims = [
@@ -725,10 +726,20 @@ class DDPM(pl.LightningModule):
 
     @torch.no_grad()
     def shared_valtest_end(self, outs):
+        try:
+            outs = self.all_gather(outs)
+        except:
+            print("could not gather")
+        print(len(outs))
         metrics_dict = {
             k: np.mean([t for out in outs for t in out[k].ravel().tolist()])
             for k in outs[0]
         }
+        try:
+            with open(os.path.join(self.trainer.logdir, 'results.txt'), 'w') as f: 
+                f.write(json.dumps(metrics_dict))
+        except:
+            print("could not write to json file")
         metrics_dict["step"] = self.global_step
         self.log_dict(metrics_dict)
         torch.cuda.empty_cache()
@@ -1206,9 +1217,17 @@ class LatentDiffusion(DDPM):
                     self.cc_projection(torch.where(prompt_mask, null_prompt, clip_emb))
                 ]
 
-        cond["c_concat"] = [
-            input_mask * self.encode_first_stage((xc.to(self.device))).mode().detach()
-        ]
+        if self.conditioning_config.use_raymap:
+            ego_raymap = super().get_input(batch, "ego_raymap").to(self.device) #Bx6x64x64
+            encoding = self.encode_first_stage((xc.to(self.device))).mode().detach()
+            cond["c_concat"] = [
+                input_mask * torch.cat((encoding,ego_raymap), 1)
+            ]
+        else:
+            cond["c_concat"] = [
+                input_mask * self.encode_first_stage((xc.to(self.device))).mode().detach()
+            ]
+        
         out = [z, cond]
         if return_first_stage_outputs:
             xrec = self.decode_first_stage(z)
@@ -1902,8 +1921,9 @@ class LatentDiffusion(DDPM):
         c = repeat(c, "1 ... -> b ...", b=batch_size).to(self.device)
         cond = {}
         cond["c_crossattn"] = [c]
+        add = 6 if self.conditioning_config.use_raymap else 0
         cond["c_concat"] = [
-            torch.zeros([batch_size, 4, image_size // 8, image_size // 8]).to(
+            torch.zeros([batch_size, 4+add, image_size // 8, image_size // 8]).to(
                 self.device
             )
         ]

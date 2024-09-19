@@ -111,7 +111,7 @@ data:
         resolution: [256,256]
     test_config:
       rate: 0.025
-      batch_size: 4
+      batch_size: 32
       num_workers: 0
       #shuffle_buffer_size: null
       prefetch_factor: 0

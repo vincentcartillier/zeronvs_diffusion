@@ -31,6 +31,7 @@ from ldm.data import webdataset_base
 from decord import VideoReader
 from decord import cpu, gpu
 from imageio import imread
+from tqdm import tqdm
 
 
 from projectaria_tools.core.calibration import CameraCalibration, KANNALA_BRANDT_K3, distort_by_calibration
@@ -599,12 +600,13 @@ class EgoExoDatasetPreprocessedWithPosesRayMap(Dataset):
         self.root = cfg.root_dir
         self.data_filename = cfg.filename
         self.resolution = cfg.resolution
+        self.raymap_res = cfg.raymap_res
 
         data = json.load(open(self.data_filename, "r"))
 
         # -- make samples: exo -> ego
         samples = []
-        for i, d in enumerate(data):
+        for i, d in enumerate(tqdm(data)):
             for j in range(len(d['exo_data'])):
                 exo_pose = d['exo_data'][j]['exo_pose']
                 if not exo_pose or exo_pose is None: continue
@@ -664,51 +666,61 @@ class EgoExoDatasetPreprocessedWithPosesRayMap(Dataset):
         ego_cx = ego_w / 2. -0.5
         ego_cy = ego_h / 2. -0.5
         ego_f = np.array(sample['ego_camera_calibration']['projection_params'])[0]
-        K_ego = np.array(
-            [ego_f, 0, ego_cx],
-            [0, ego_f, ego_cy],
-            [0,0,1]
-        )
+        # K_ego = np.array(
+        #     [ego_f, 0, ego_cx],
+        #     [0, ego_f, ego_cy],
+        #     [0,0,1]
+        # )
 
         exo_w = exo_info['exo_camera_calibration']['w']
         exo_h = exo_info['exo_camera_calibration']['h']
         exo_cx = exo_w / 2. -0.5
         exo_cy = exo_h / 2. -0.5
         exo_f = np.array(exo_info['exo_camera_calibration']['projection_params'])[0]
-        K_exo = np.array(
-            [exo_f, 0, exo_cx],
-            [0, exo_f, exo_cy],
-            [0,0,1]
-        )
+        # K_exo = np.array(
+        #     [exo_f, 0, exo_cx],
+        #     [0, exo_f, exo_cy],
+        #     [0,0,1]
+        # )
 
 
         ego_pose = np.array(sample['ego_poses'][frame_idx])
         exo_pose = np.array(exo_info['exo_pose'])
 
-        T = common.get_T(
-            np.linalg.inv(ego_pose)[:3],
-            np.linalg.inv(exo_pose)[:3],
-            to_torch=False,
+        T = common.get_ego_to_exo(
+            exo_pose,
+            ego_pose
         ).astype(np.float32)
+        # print(f"THIS IS THE T MATRIX: {T}")
+        # print(f"T shape: {T.shape}")
 
 
-        def compute_ray_map(cx,cy,f,c2w):
-            W, H = self.resolution
+        def compute_ray_map(cx,cy,f,c2w, W, H):
+            scale = 1
+            if [W,H] != self.resolution:
+                scale = W/self.resolution[0]
+            cx *= scale
+            cy *= scale
+            f *= scale
             i, j = np.meshgrid(np.linspace(0, W-1, W), np.linspace(0, H-1, H))
-            i = i.t()  # transpose
-            j = j.t()
-            dirs = torch.stack([(i-cx)/f, -(j-cy)/f, -torch.ones_like(i)], -1)
+            i = i.T  # transpose
+            j = j.T
+            dirs = np.stack([(i-cx)/f, -(j-cy)/f, -np.ones_like(i)], -1)
             dirs = dirs.reshape(H, W, 1, 3)
 
             # Rotate ray directions from camera frame to the world frame
             # dot product, equals to: [c2w.dot(dir) for dir in dirs]
-            rays_d = torch.sum(dirs * c2w[:3, :3], -1)
-            rays_o = c2w[:3, -1].expand(rays_d.shape)
+            rays_d = np.sum(dirs * c2w[:3, :3], axis=-1)
+            rays_o = c2w[:3, -1]
             return rays_o, rays_d
 
-
-        ego_o, ego_d = compute_ray_map(ego_cx, ego_cy, ego_f, T)
-        exo_o, exo_d = compute_ray_map(exo_cx, exo_cy, exo_f, np.eye(4))
+        raymap_resolution = (self.raymap_res, self.raymap_res)
+        ego_o, ego_d = compute_ray_map(ego_cx, ego_cy, ego_f, T, *raymap_resolution)
+        ego_pos = np.broadcast_to(ego_o, ego_d.shape)
+        ego_raymap = np.concatenate((ego_pos,ego_d),axis=-1)
+        exo_o, exo_d = compute_ray_map(exo_cx, exo_cy, exo_f, np.eye(4), *raymap_resolution)
+        exo_pos = np.broadcast_to(exo_o, exo_d.shape)
+        exo_raymap = np.concatenate((exo_pos,exo_d),axis=-1)
         #TODO: make ray maps from eog_o and ego_d (just concat the matrices
         #chanel wise)
 
@@ -767,6 +779,8 @@ class EgoExoDatasetPreprocessedWithPosesRayMap(Dataset):
             uid=uid,
             pair_uid=pair_uid,
             T=T,
+            ego_raymap=ego_raymap,
+            exo_raymap=exo_raymap,
             target_cam2world=ego_pose,
             cond_cam2world=exo_pose,
             center=np.zeros(3),
